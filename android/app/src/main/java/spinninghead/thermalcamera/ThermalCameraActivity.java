@@ -15,6 +15,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.NumberPicker;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.yahoo.mobile.client.android.util.rangeseekbar.RangeSeekBar;
@@ -50,11 +51,19 @@ public class ThermalCameraActivity extends AppCompatActivity {
 
     float maxTemp = -1000;
     float minTemp = 1000;
+    float centerTemp = 0;
     float minF = 0;
     float maxF = 0;
 
+    float lowFilterCelcius = 0;
+    float highFilterCelcius = 240;
+
     ImageView imgThermalView;
-    RangeSeekBar seekBar;
+
+    TextView txtMinTemp;
+    TextView txtMaxTemp;
+    TextView txtCenterTemp;
+
 
     Stack  <float[]> frameBuffer = new Stack();
     static int BUFFER_MAX_SIZE = 100;
@@ -162,44 +171,51 @@ public class ThermalCameraActivity extends AppCompatActivity {
         Button btnStart = (Button) findViewById(R.id.start);
         Button btnStop = (Button) findViewById(R.id.stop);
         imgThermalView = (ImageView) findViewById(R.id.viewThermalImage);
-        seekBar = (RangeSeekBar) findViewById(R.id.rangeSeekbar);
+
         NumberPicker numLow = (NumberPicker) findViewById(R.id.npkrLow);
         NumberPicker numHigh = (NumberPicker) findViewById(R.id.npkrHigh);
         ImageView imgScale = (ImageView) findViewById(R.id.imgScale);
+        txtCenterTemp = (TextView) findViewById(R.id.txtCenterTemp);
+        txtMinTemp = (TextView) findViewById(R.id.txtMinTemp);
+        txtMaxTemp = (TextView) findViewById(R.id.txtMaxTemp);
 
         numLow.setMinValue(0);
-        numLow.setMaxValue(340);
-        numLow.setValue(0);
+        numLow.setMaxValue(612);
+        numLow.setValue(40);
 
         numHigh.setMinValue(0);
-        numHigh.setMaxValue(340);
-        numHigh.setValue(340);
+        numHigh.setMaxValue(612);
+        numHigh.setValue(240);
 
-        seekBar.setNotifyWhileDragging(true);
+        numLow.setFormatter(new NumberPicker.Formatter() {
+            @Override
+            public String format(int index) {
+                return Integer.toString(index - 40);
+            }
+        });
 
-        seekBar.setRangeValues(10, 40);
+        numHigh.setFormatter(new NumberPicker.Formatter() {
+            @Override
+            public String format(int index) {
+                return Integer.toString(index - 40);
+            }
+        });
 
-//        seekBar.setOnRangeSeekBarChangeListener(new RangeSeekBar.OnRangeSeekBarChangeListener() {
-//            @Override
-//            public void onRangeSeekBarValuesChanged(RangeSeekBar bar, Object minValue, Object maxValue) {
-//
-//                int minRangeValue = -40;
-//                int maxRangeValue = 400;
-//
-//                int minInt = minRangeValue;
-//                int maxInt = maxRangeValue;
-//
-//                if (minInt > -30) {
-//                    minRangeValue = minInt - 10;
-//                }
-//
-//                if (maxInt <390) {
-//                    maxRangeValue = maxInt + 10;
-//                }
-//
-//                seekBar.setRangeValues(minRangeValue, maxRangeValue);
-//            }
-//        });
+        numLow.setOnValueChangedListener(new NumberPicker.OnValueChangeListener() {
+            @Override
+            public void onValueChange(NumberPicker numberPicker, int oldVal, int newVal) {
+                numHigh.setMinValue(newVal);
+                lowFilterCelcius = ((5 * (newVal - 72)) / 9);  //72 to account for numberPicker formatting
+            }
+        });
+
+        numHigh.setOnValueChangedListener(new NumberPicker.OnValueChangeListener() {
+            @Override
+            public void onValueChange(NumberPicker numberPicker, int oldVal, int newVal) {
+                numLow.setMaxValue(newVal);
+                highFilterCelcius = (( 5 *(newVal - 72)) / 9);
+            }
+        });
 
         imgThermalView.setBackgroundColor(colorMap[0]);
 
@@ -270,6 +286,14 @@ public class ThermalCameraActivity extends AppCompatActivity {
     protected void stopCamera() {
         if (clientListen != null) {
             clientListen.run = false;
+
+            clientListen = null;
+            clientListenThread = null;
+
+            clientListen = new ClientListen();
+            clientListenThread = new Thread(clientListen);
+            clientListen.reset = true;
+            clientListenThread.start();
         }
 
         if (uiUpdateHandler!=null) {
@@ -346,148 +370,42 @@ public class ThermalCameraActivity extends AppCompatActivity {
 
         int colorIndex = 0;
 
-        int min = (int) seekBar.getSelectedMinValue();
-        int max = (int) seekBar.getSelectedMaxValue();
-
+        float min = lowFilterCelcius;
+        float max = highFilterCelcius;
 
         if (tempC < min) {
             colorIndex = 0;
         } else if (tempC > max) {
-            colorIndex = 1529;
+            colorIndex = 1528;
         } else {
 
-            float tmp = tempC - min;
-            colorIndex = Math.round((tmp/(max-min)) * 1529);
+            float tmp = tempC - lowFilterCelcius;
+            colorIndex = Math.abs(Math.round(((tempC-min)/(max-min)) * 1529));
+
+            if (colorIndex < 1) {
+                colorIndex = 1;
+            } else if (colorIndex > 1529) {
+
+                Log.d("Thermal", "Index: " + colorIndex);
+                Log.d("Thermal", "tempC: " + tempC);
+                Log.d("Thermal", "MinC: " + min);
+                Log.d("Thermal", "MaxC: " + max);
+
+                colorIndex = 1529;
+
+            }
 
         }
+
+
+
 
         return colorIndex;
 
     }
 
-    protected void createSciFiBitmap() {
-
-        Bitmap.Config conf = Bitmap.Config.ARGB_8888; // see other conf types
-        Bitmap bmp = Bitmap.createBitmap(384, 288, conf); // this creates a MUTABLE bitmap
-        Canvas canvas = new Canvas(bmp);
-        Paint p = new Paint();
-        p.setColor(Color.WHITE);
-        p.setTextSize(5f);
-
-        int colorInt = 0;
-
-        int x = 0;
-        int y = 288;
-        int i = 0;
-
-        int colorIndex = 0;
-
-        if (frameBuffer.size() > 0) {
-            float[] pixels = frameBuffer.pop();
-
-            while  (y>0) {
-
-                while (x<384) {
 
 
-                    colorIndex = getColorIndex(pixels[i]);
-                    p.setColor(colorMap[colorIndex]);
-                    p.setAlpha(255);
-
-                    canvas.drawRect(x + 4, canvas.getHeight() - y + 4, x + 8, (canvas.getHeight() - y) + 8, p);
-                    p.setAlpha(127);
-
-                    //left
-                    canvas.drawRect(x , canvas.getHeight() - y , x + 4, (canvas.getHeight() - y) + 4, p);
-                    canvas.drawRect(x , canvas.getHeight() - y + 4, x + 4, (canvas.getHeight() - y) + 8, p);
-                    canvas.drawRect(x , canvas.getHeight() - y + 8, x + 4, (canvas.getHeight() - y) + 12, p);
-
-                    //middle
-                    canvas.drawRect(x + 4, canvas.getHeight() - y , x + 8, (canvas.getHeight() - y) + 4, p);
-                    canvas.drawRect(x + 4, canvas.getHeight() - y + 8, x + 8, (canvas.getHeight() - y) + 12, p);
-
-                    //right
-                    canvas.drawRect(x + 8 , canvas.getHeight() - y , x + 12, (canvas.getHeight() - y) + 4, p);
-                    canvas.drawRect(x + 8 , canvas.getHeight() - y + 4, x + 12, (canvas.getHeight() - y) + 8, p);
-                    canvas.drawRect(x + 8 , canvas.getHeight() - y + 8, x + 12, (canvas.getHeight() - y) + 12, p);
-
-
-
-                    x=x+12;
-                    i=i+1;
-
-                }
-
-                x=0;
-
-                y=y-12;
-            }
-            imgThermalView.setImageBitmap(bmp);
-        }
-    }
-
-    protected void createInterpolatedBitmap() {
-
-        Bitmap.Config conf = Bitmap.Config.ARGB_8888; // see other conf types
-        Bitmap bmp = Bitmap.createBitmap(256, 192, conf); // this creates a MUTABLE bitmap
-        Canvas canvas = new Canvas(bmp);
-        Paint p = new Paint();
-        p.setColor(Color.WHITE);
-        p.setTextSize(5f);
-
-        int colorInt = 0;
-
-        int x = 0;
-        int y = 192;
-        int i = 0;
-
-        int colorIndex = 0;
-
-        if (frameBuffer.size() > 0) {
-            float[] pixels = frameBuffer.pop();
-
-            while  (y>0) {
-
-                while (x<256) {
-
-
-                    colorIndex = getColorIndex(pixels[i]);
-                    p.setColor(colorMap[colorIndex]);
-                    p.setAlpha(255);
-
-                    canvas.drawRect(x + 4, canvas.getHeight() - y + 4, x + 8, (canvas.getHeight() - y) + 8, p);
-
-
-                        //left
-                        canvas.drawRect(x, canvas.getHeight() - y, x + 4, (canvas.getHeight() - y) + 4, p);
-                        canvas.drawRect(x, canvas.getHeight() - y + 4, x + 4, (canvas.getHeight() - y) + 8, p);
-                        canvas.drawRect(x, canvas.getHeight() - y + 8, x + 4, (canvas.getHeight() - y) + 12, p);
-
-
-
-                    //middle
-                    canvas.drawRect(x + 4, canvas.getHeight() - y , x + 8, (canvas.getHeight() - y) + 4, p);
-                    canvas.drawRect(x + 4, canvas.getHeight() - y + 8, x + 8, (canvas.getHeight() - y) + 12, p);
-
-                    //right
-                    canvas.drawRect(x + 8 , canvas.getHeight() - y , x + 12, (canvas.getHeight() - y) + 4, p);
-                    canvas.drawRect(x + 8 , canvas.getHeight() - y + 4, x + 12, (canvas.getHeight() - y) + 8, p);
-                    canvas.drawRect(x + 8 , canvas.getHeight() - y + 8, x + 12, (canvas.getHeight() - y) + 12, p);
-
-
-
-                    x=x+8;
-                    i=i+1;
-
-                }
-
-                x=0;
-
-                y=y-8;
-            }
-            imgThermalView.setImageBitmap(bmp);
-        }
-    }
 
     protected void createScaledDataBitmap() {
 
@@ -534,65 +452,15 @@ public class ThermalCameraActivity extends AppCompatActivity {
 
             }
 
-
-
             imgThermalView.setImageBitmap(Bitmap.createScaledBitmap(bmp, 640, 480, true));
         }
     }
 
-    protected void createScaledDataBitmap2() {
-
-        Bitmap.Config conf = Bitmap.Config.ARGB_8888; // see other conf types
-        Bitmap bmp = Bitmap.createBitmap(64, 48, conf); // this creates a MUTABLE bitmap
-        Canvas canvas = new Canvas(bmp);
-        Paint p = new Paint();
-        //p.setAlpha(255);
-        p.setColor(Color.WHITE);
-        p.setTextSize(5f);
-
-        int colorInt = 0;
-
-        int x = 0;
-        int y = 0;
-        int i = 0;
-
-        int colorIndex = 0;
-
-        if (frameBuffer.size() > 0) {
-            float[] tempData = frameBuffer.pop();
-
-            int[][] pixels = createInterpolatedFrame(tempData);
-
-            while (y<46) {
-                while (x < 63) {
-                    p.setColor(colorMap[pixels[x][y]]);
-                    if (pixels[x][y] < 510) {
-                        p.setAlpha(pixels[x][y]/2);
-                    } else {
-                        p.setAlpha(255);
-                    }
-
-                    canvas.drawPoint(x,y,p);
-                    x++;
-                }
-                y++;
-                x=0;
-            }
-
-            p.setColor(Color.WHITE);
-            canvas.drawLine(31, 20, 31, 27, p);
-            canvas.drawLine(28, 23, 35, 23, p);
-
-            //thermalImage.setImageBitmap(bmp);
-
-            imgThermalView.setImageBitmap(Bitmap.createScaledBitmap(bmp, 640, 480, true));
-        }
-    }
 
     protected void createRawDataBitmap() {
 
         Bitmap.Config conf = Bitmap.Config.ARGB_8888; // see other conf types
-        Bitmap bmp = Bitmap.createBitmap(320, 240, conf); // this creates a MUTABLE bitmap
+        Bitmap bmp = Bitmap.createBitmap(640, 480, conf); // this creates a MUTABLE bitmap
         Canvas canvas = new Canvas(bmp);
         Paint p = new Paint();
         p.setColor(Color.WHITE);
@@ -601,8 +469,11 @@ public class ThermalCameraActivity extends AppCompatActivity {
         int colorInt = 0;
 
         int x = 0;
-        int y = 240;
+        int y = 480;
         int i = 0;
+
+        minTemp = 1000;
+        maxTemp = -1000;
 
         int colorIndex = 0;
 
@@ -611,38 +482,66 @@ public class ThermalCameraActivity extends AppCompatActivity {
 
             while  (y>0) {
 
-                while (x<320) {
+                while (x<640) {
+
+                    if (pixels[i] < minTemp) {
+                        minTemp = pixels[i];
+                    }
+
+                    if (pixels[i] > maxTemp) {
+                        maxTemp = pixels[i];
+                    }
 
                     colorIndex = getColorIndex(pixels[i]);
                     p.setColor(colorMap[colorIndex]);
                     p.setAlpha(255);
 
-                    canvas.drawRect(x, canvas.getHeight() - y, x + 10, (canvas.getHeight() - y) + 10, p);
+                    canvas.drawRect(x, canvas.getHeight() - y, x + 20, (canvas.getHeight() - y) + 20, p);
 
-                    x=x+10;
+                    x=x+20;
                     i=i+1;
                 }
 
                 x=0;
 
-                y=y-10;
+                y=y-20;
 
             }
-            //thermalImage.setImageBitmap(bmp);
 
-            imgThermalView.setImageBitmap(Bitmap.createScaledBitmap(bmp, 640, 480, true));
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2f);
+            p.setColor(Color.WHITE);
+            canvas.drawRect(310, canvas.getHeight() - 230, 310 + 20, (canvas.getHeight() - 230) + 20, p);
+
+            centerTemp = pixels[400];
+
+            runOnUiThread(new Runnable() {
+
+                @Override
+                public void run() {
+
+                    txtCenterTemp.setText(String.format("%.1f", ((9.0/5.0)*centerTemp + 32)));
+                    txtMaxTemp.setText(String.format("%.1f", ((9.0/5.0)*maxTemp + 32)));
+                    txtMinTemp.setText(String.format("%.1f", ((9.0/5.0)*minTemp + 32)));
+                    imgThermalView.setImageBitmap(bmp);
+
+                }
+            });
+
+
+
+
+
         }
     }
 
     private void updateUI() {
 
 
-        //createRawDataBitmap();
+        createRawDataBitmap();
         //createInterpolatedBitmap();
         //createSciFiBitmap();
         //createScaledDataBitmap();
-        createScaledDataBitmap2();
-
 
         uiUpdateHandler.sendEmptyMessageDelayed(UPDATE_UI, 100);
 
@@ -650,8 +549,12 @@ public class ThermalCameraActivity extends AppCompatActivity {
 
     public class ClientListen implements Runnable {
         public boolean run = true;
+        public boolean reset = false;
 
-        float pixels[] = new float[768];
+        float pixels[] = new float[771];
+
+        float minTemp = 0;
+        float maxTemp = 0;
 
         @Override
         public void run() {
@@ -671,7 +574,11 @@ public class ThermalCameraActivity extends AppCompatActivity {
                 //create a socket to make the connection with the server
                 Socket socket = new Socket(serverAddr, 88);
                 PrintWriter printWriter = new PrintWriter(socket.getOutputStream());
-                printWriter.write(String.valueOf(port));
+                if (reset) {
+                    printWriter.write("reset");
+                } else {
+                    printWriter.write(String.valueOf(port));
+                }
                 printWriter.flush();
                 printWriter.close();
                 s.close();
@@ -705,10 +612,6 @@ public class ThermalCameraActivity extends AppCompatActivity {
                         int i = 0;
                         int stop = 0;
 
-
-                        maxTemp = -1000;
-                        minTemp = 1000;
-
                         if (message[0] == 49) {
                             i = 0;
                             stop = 256;
@@ -734,11 +637,26 @@ public class ThermalCameraActivity extends AppCompatActivity {
                             f = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getFloat();
                             pixels[i] = f;
 
+
+
+
                         }
 
                         if (message[0]==51) {
+
+                            if (pixels[i] < minTemp) {
+                                minTemp = pixels[i];
+                            }
+
+                            if (pixels[i] > maxTemp) {
+                                maxTemp = pixels[i];
+                            }
+
+
+
                             addFrame(pixels);
                         }
+
 
 //                        minF = ((minTemp * 9) / 5) + 32;
 //                        maxF = ((maxTemp * 9) / 5) + 32;

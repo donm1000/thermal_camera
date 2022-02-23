@@ -1,3 +1,17 @@
 <resources>
     <string name="app_name">ThermalCamera</string>
+    <string-array name="sensor_mode">
+        <item>Auto-Range</item>
+        <item>Hot/Cold</item>
+        <item>Manual</item>
+    </string-array>
+
+    <string-array name="sensor_palette">
+        <item>Normal</item>
+        <item>White Hot</item>
+        <item>Green Hot</item>
+        <item>Red/Blue</item>
+    </string-array>
+
+
 </resources>

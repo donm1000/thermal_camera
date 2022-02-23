@@ -31,7 +31,7 @@ TFT_eSprite msg = TFT_eSprite(&M5.Lcd);
 WiFiServer server(88);
 WiFiUDP udp;
 IPAddress clientIP;
-String clientPort;
+String clientString;
 bool clientConnected = false;
 
 //UDP Data
@@ -127,8 +127,6 @@ void setupAccessPoint() {
 
 void sendUdpPackets() {
 
-      
-
       //Serial.println("Sending UDP1"); 
       //Serial.println(clientIP);
 
@@ -158,7 +156,7 @@ void sendUdpPackets() {
 
       }
       udp.begin(WiFi.localIP(),4000);
-      udp.beginPacket(clientIP, clientPort.toInt());
+      udp.beginPacket(clientIP, clientString.toInt());
       udp.write(buffer1, 1025);
       int ret = udp.endPacket();
 
@@ -182,7 +180,7 @@ void sendUdpPackets() {
 
         //Serial.println("Sending UDP2"); 
         udp.begin(WiFi.localIP(),4000);
-        udp.beginPacket(clientIP, clientPort.toInt());
+        udp.beginPacket(clientIP, clientString.toInt());
         udp.write(buffer2, 1025);
         udp.endPacket();
         //Serial.println(buffer2[0]);
@@ -206,7 +204,7 @@ void sendUdpPackets() {
 
         //Serial.println("Sending UDP3"); 
         udp.begin(WiFi.localIP(),4000);
-        udp.beginPacket(clientIP, clientPort.toInt());
+        udp.beginPacket(clientIP, clientString.toInt());
         udp.write(buffer3, 1025);
         udp.endPacket();
         //Serial.println("Finished Sending UDP3"); 
@@ -220,6 +218,7 @@ void sendUdpPackets() {
 
 void setup() {
    
+   
   
     M5.begin();
     
@@ -232,7 +231,7 @@ void setup() {
     // use show tmp data
     msg.createSprite(160 - COLS_3, ROWS_3 - 10);
 
-    Serial.println("M5StickC MLX90640 IR Camera");
+    Serial.println("M5StickC MLX90640 IR Camera V1.0");
     setupAccessPoint();
 
     // Get device parameters - We only have to do this once
@@ -264,14 +263,24 @@ void loop() {
   
     WiFiClient client = server.available();   // listen for incoming clients
 
-    if (client&&!clientConnected) {                             // if you get a client,
+    if (client) {
+    
+    
+
+    //if (client&&!clientConnected) {                             // if you get a client,
       Serial.println("New Client."); 
       clientIP = client.remoteIP();
       Serial.println(clientIP);
-      clientPort = client.readString();
-      Serial.println(clientPort);
+      clientString = client.readString();
+      Serial.println(clientString);
+      if (clientString=="reset") {  //Reset the server
+        Serial.println("Client requested server reset"); 
+        client.stop();
+        clientConnected = false;
+        setup();
+      }
       clientConnected = true;
-      client.println("Hello");
+      //client.println("Hello");
       //client.stop();
       
     } else {
